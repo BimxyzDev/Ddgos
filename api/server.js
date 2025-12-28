@@ -6,9 +6,9 @@ const app = express();
 
 // ==== CONFIG ====
 const CONFIG = {
-  token: 'GANTI_TOKEN_BOT_ANDA',
-  owner: 1234567890, // GANTI ID ANDA
-  key: 'BLACKBOXVIP' // KEY ACCESS
+  token: '8202346696:AAG2I28nxL0qGatWEre6IJL_y63yXXeuJMc',
+  owner: 6629230649, // GANTI ID ANDA
+  key: '123RJhTtApALhaT' // KEY ACCESS
 };
 
 const bot = new TelegramBot(CONFIG.token, { polling: true });
