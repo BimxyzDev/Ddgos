@@ -1,5 +1,5 @@
 const express = require('express');
-const TelegramBot = require('node-telegram-bot-api');
+const TelegramBot = require('telegram-bot-vercel');
 const http = require('http');
 
 const app = express();
